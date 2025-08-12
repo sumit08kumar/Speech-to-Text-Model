@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Speech-to-Text ASR System</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .upload-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px dashed #ddd;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .record-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 2px solid #007bff;
+            border-radius: 10px;
+            text-align: center;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .recording {
+            background-color: #dc3545;
+        }
+        .recording:hover {
+            background-color: #c82333;
+        }
+        input[type="file"] {
+            margin: 10px;
+            padding: 10px;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 5px;
+            border-left: 4px solid #007bff;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background-color: #f8d7da;
+        }
+        .loading {
+            text-align: center;
+            color: #666;
+        }
+        .status {
+            margin: 10px 0;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 Speech-to-Text ASR System</h1>
+        
+        <div class="upload-section">
+            <h3>Upload Audio File</h3>
+            <input type="file" id="audioFile" accept="audio/*">
+            <br>
+            <button onclick="uploadAndTranscribe()">Transcribe Audio</button>
+        </div>
+        
+        <div class="record-section">
+            <h3>Record Audio</h3>
+            <div class="status" id="recordStatus">Ready to record</div>
+            <button id="recordBtn" onclick="toggleRecording()">Start Recording</button>
+            <button id="transcribeBtn" onclick="transcribeRecording()" disabled>Transcribe Recording</button>
+        </div>
+        
+        <div id="result"></div>
+    </div>
+
+    <script>
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+
+        async function uploadAndTranscribe() {
+            const fileInput = document.getElementById('audioFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                showResult('Please select an audio file first.', true);
+                return;
+            }
+            
+            showResult('Transcribing audio...', false, true);
+            
+            const formData = new FormData();
+            formData.append('audio', file);
+            
+            try {
+                const response = await fetch('/api/asr/transcribe', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`Transcription: "${data.transcription}"`, false);
+                } else {
+                    showResult(`Error: ${data.error}`, true);
+                }
+            } catch (error) {
+                showResult(`Error: ${error.message}`, true);
+            }
+        }
+
+        async function toggleRecording() {
+            const recordBtn = document.getElementById('recordBtn');
+            const transcribeBtn = document.getElementById('transcribeBtn');
+            const status = document.getElementById('recordStatus');
+            
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        transcribeBtn.disabled = false;
+                        transcribeBtn.audioBlob = audioBlob;
+                    };
+                    
+                    mediaRecorder.start();
+                    isRecording = true;
+                    recordBtn.textContent = 'Stop Recording';
+                    recordBtn.classList.add('recording');
+                    status.textContent = 'Recording...';
+                    transcribeBtn.disabled = true;
+                } catch (error) {
+                    showResult(`Error accessing microphone: ${error.message}`, true);
+                }
+            } else {
+                mediaRecorder.stop();
+                mediaRecorder.stream.getTracks().forEach(track => track.stop());
+                isRecording = false;
+                recordBtn.textContent = 'Start Recording';
+                recordBtn.classList.remove('recording');
+                status.textContent = 'Recording stopped. Ready to transcribe.';
+            }
+        }
+
+        async function transcribeRecording() {
+            const transcribeBtn = document.getElementById('transcribeBtn');
+            const audioBlob = transcribeBtn.audioBlob;
+            
+            if (!audioBlob) {
+                showResult('No recording available. Please record audio first.', true);
+                return;
+            }
+            
+            showResult('Transcribing recording...', false, true);
+            
+            const formData = new FormData();
+            formData.append('audio', audioBlob, 'recording.wav');
+            
+            try {
+                const response = await fetch('/api/asr/transcribe', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    showResult(`Transcription: "${data.transcription}"`, false);
+                } else {
+                    showResult(`Error: ${data.error}`, true);
+                }
+            } catch (error) {
+                showResult(`Error: ${error.message}`, true);
+            }
+        }
+
+        function showResult(message, isError = false, isLoading = false) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = message;
+            resultDiv.className = 'result';
+            
+            if (isError) {
+                resultDiv.classList.add('error');
+            } else if (isLoading) {
+                resultDiv.classList.add('loading');
+            }
+        }
+
+        // Check if the ASR service is healthy on page load
+        window.onload = async function() {
+            try {
+                const response = await fetch('/api/asr/health');
+                const data = await response.json();
+                if (response.ok) {
+                    showResult(`✅ ${data.message}`, false);
+                } else {
+                    showResult('❌ ASR service is not available', true);
+                }
+            } catch (error) {
+                showResult('❌ Unable to connect to ASR service', true);
+            }
+        };
+    </script>
+</body>
+</html>
+

@@ -1,0 +1,10 @@
+torch
+torchaudio
+transformers
+librosa
+scikit-learn
+pydub
+flask
+websocket-client
+
+
